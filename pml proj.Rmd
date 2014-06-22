@@ -1,0 +1,114 @@
+Practical Machine Learning Peer Review Assignment
+========================================================
+## Synopsis
+
+In this project, people were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Our goal is using data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the category of movement that human text subjects intentionally exhibited when performing a simple physical exercise, based on sensor data. I will start from trimming the data sets, then establish and cross validate a predictive model from pml-train.csv using random forest algoritm, and use the model to predit the unlabeled data set pml-test.csv.
+
+More information is available from the website here: http://groupware.les.inf.puc-rio.br/har  
+
+
+## Download files
+```{r 1}
+if (!file.exists("./pml-training.csv")) {
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", 
+              "pml-training.csv", method = "curl")
+}
+
+if (!file.exists("./pml-testing.csv")) {
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", 
+              "pml-testing.csv", method = "curl")
+}
+```
+
+## Read training and testing csv files
+```{r 2-1}
+rawtraining <- read.csv("pml-training.csv", na.strings = c("NA", ""))
+rawtesting <- read.csv("pml-testing.csv", na.strings = c("NA", ""))
+```
+check the size of data
+```{r 2-2}
+dim(rawtraining); dim(rawtesting)
+m <- ncol(rawtraining)
+```
+
+## Trimming the data to prevent overfitting
+
+There are `r m` variables in boths data sets. However, not all of them are useful. 
+
+### Remove the unuseful columns (personal information, time stamps, etc.) and empty columns
+```{r 3-1}
+rmcols1 <- grep("timestamp|X|user_name|new_window|num_window",names(rawtraining))
+train1 <- rawtraining[, -rmcols1]
+rmcols2 <- grep("timestamp|X|user_name|new_window|num_window",names(rawtesting))
+test1 <- rawtesting[, -rmcols2] ## remove unuseful
+
+rmnacols1 <- colSums(is.na(train1))
+train2 <- train1[, rmnacols1 == 0]
+rmnacols2 <- colSums(is.na(test1))
+test2 <- test1[, rmnacols2 ==0] ## remove NAs
+```
+
+### Remove the highly correlated variable pairs
+```{r 3-2}
+library(caret)
+library(corrplot)
+
+corMatrix <- cor(train2[, -ncol(train2)])
+corrplot(corMatrix, method = "circle", type = "lower", tl.cex = 0.7)
+
+highCorr <- findCorrelation(corMatrix, cutoff = 0.99)    ## high correlation cutoff = 0.9
+train3 <- cbind(train2[, -highCorr])    
+test3 <- test2[, -highCorr]  ## remove highly correlated pairs
+n <- ncol(train3)
+rm(rawtraining); rm(rawtesting);rm(train1); rm(train2); rm(test1); rm(test2) ## release memory
+```
+From the correlation figure, most of the predictors do not exhibit high correlation. Nonetheless, there are still a few variables that are highly correlated with another. They are removed for preventin overfitting.
+
+Now the train data set has `r n` variables left (including classe).
+
+## Establish and validate predictive model
+
+In this report, random forest algorithm was used for prediction.
+
+### split train data into training and testing
+```{r 4-1}
+set.seed(12345)
+inTrain <- createDataPartition(train3$classe, p = 0.7, list = F)
+training <- train3[inTrain, ]
+testing <- train3[-inTrain, ]
+```
+
+### predictive model: random forest
+```{r 4-2}
+library(randomForest)
+set.seed(67890)
+modfit <<- randomForest(classe ~ ., data = training)
+varImpPlot(modfit, cex = .7)
+modfit
+```
+The confusion matrix output shows how well the model predicted/classified the values in the training set.
+
+### Cross validation testing and out-of-sample error estimate
+```{r 4-3}
+crosstest <- predict(modfit, testing)
+confusionMatrix(testing$classe, crosstest)$table
+accuracy <- postResample(testing$classe, crosstest)
+accuracy 
+```
+The confusion matrix output shows how well the model predicted/classified the values in the cross validation data set.
+
+
+## Saving answers for auto grader
+```{r 5}
+answers <- predict(modfit, test3)
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+}
+pml_write_files(answers)
+```
+The answer saved achieved the 100% accuracy by auto grader.
+
